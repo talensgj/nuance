@@ -70,20 +70,20 @@ def periodic_search(epochs, durations, ls, snr_f, progress=True):
 
 
 def _fold_ll(epochs, lls, z, vz):
-    f_ll = core.nearest_neighbors(epochs, lls)
-    f_z = core.nearest_neighbors(epochs, z)
-    f_dz2 = core.nearest_neighbors(epochs, vz)
+
+    f_idx = core.nearest_neighbors_idx(epochs)
 
     def _fold(times):
-        lls = f_ll(times)
-        zs = f_z(times)
-        vzs = f_dz2(times)
+        idx = f_idx(times)
+        lls_idx = lls[idx]
+        z_idx = z[idx]
+        vz_idx = vz[idx]
 
-        vZ = 1 / np.sum(1 / vzs, 0)
-        Z = vZ * np.sum(zs / vzs, 0)
-        P1 = np.sum(lls, 0)
+        vZ = 1 / np.sum(1 / vz_idx, 0)
+        Z = vZ * np.sum(z_idx / vz_idx, 0)
+        P1 = np.sum(lls_idx, 0)
         P2 = 0.5 * np.sum(
-            np.log(vzs) - np.log(vzs + vZ) + (zs - Z) ** 2 / (vzs + vZ), 0
+            np.log(vz_idx) - np.log(vz_idx + vZ) + (z_idx - Z) ** 2 / (vz_idx + vZ), 0
         )
 
         return P1 - P2

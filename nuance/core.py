@@ -362,3 +362,16 @@ def nearest_neighbors(xp, fp):
         return fp[j]
 
     return fun
+
+
+def nearest_neighbors_idx(xp):
+    import numpy as np
+
+    xp = np.asarray(xp)
+
+    def fun(x):
+        x = np.asarray(x)
+        j = np.searchsorted(xp, x) - 1
+        return j
+
+    return fun
