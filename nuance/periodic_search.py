@@ -41,28 +41,37 @@ def periodic_search(epochs, durations, ls, snr_f, progress=True):
     def _progress(x, **kwargs):
         return tqdm(x, **kwargs) if progress else x
 
-    def function(periods, processes=DEVICES_COUNT, batch_size=DEVICES_COUNT):
-        snr = np.zeros(len(periods))
-        params = np.zeros((len(periods), 3))
+    def function(periods, duration_min=None, duration_max=None, processes=DEVICES_COUNT, batch_size=DEVICES_COUNT):
+
+        if duration_min is None:
+            duration_min = np.full_like(periods, np.amin(durations))
+
+        if duration_max is None:
+            duration_max = np.full_like(periods, np.amax(durations))
 
         # Use multiprocessing to get the optimal epoch and duration at each period.
         solve_f = partial(_solve, fold_f)
         ctx = mp.get_context('spawn')  # Can't use fork with jax.
         with ctx.Pool(processes=processes) as pool:
-            period_chunks = [periods[i::processes] for i in range(processes)]
 
-            for i, result in enumerate(_progress(pool.imap(solve_f, period_chunks), total=processes)):
-                epochs_chunk, duration_idx_chunk, periods_chunk = result
+            params = np.zeros((len(periods), 3))
+            chunks = [(periods[i::processes], durations, duration_min[i::processes], duration_max[i::processes]) for i in range(processes)]
+            for i, result in enumerate(_progress(pool.starmap(solve_f, chunks), total=processes)):
+                epochs_chunk, durations_chunk, periods_chunk = result
                 params[i::processes, 0] = epochs_chunk
-                params[i::processes, 1] = durations[duration_idx_chunk]
+                params[i::processes, 1] = durations_chunk
                 params[i::processes, 2] = periods_chunk
 
-        # Use jax.vmap to get the SNR at each period.
-        snr_vmap = jax.pmap(snr_f, in_axes=(0, 0, 0))
+            pool.close()
+            pool.join()
+
+        # Use jax.pmap to get the SNR at each period.
+        snr = np.zeros(len(periods))  # Output array.
+        snr_jax = jax.pmap(snr_f, in_axes=(0, 0, 0))
         for i in _progress(range(0, len(periods), batch_size), unit_scale=batch_size):
             imin = i
             imax = i + batch_size
-            snr[imin:imax] = snr_vmap(params[imin:imax, 0], params[imin:imax, 1], params[imin:imax, 2])
+            snr[imin:imax] = snr_jax(params[imin:imax, 0], params[imin:imax, 1], params[imin:imax, 2])
 
         return snr, params
 
@@ -97,20 +106,26 @@ def _fold_ll(epochs, lls, z, vz):
     return fun
 
 
-def _solve(fold_f, periods):
+def _solve(fold_f, periods, durations, duration_min, duration_max):
 
-    epochs = np.zeros_like(periods)
-    duration_idx = np.zeros_like(periods, dtype='int')
+    epoch_vals = np.zeros_like(periods)
+    duration_vals = np.zeros_like(periods)
 
     for i, period in enumerate(periods):
         phase, lls = fold_f(period)
-        epoch_i, duration_i = np.unravel_index(np.argmax(lls), lls.shape)
-        epoch = phase[epoch_i] * period
 
-        epochs[i] = epoch
-        duration_idx[i] = duration_i
+        # Enforce duration limits.
+        lls = np.where(durations < duration_min[i], np.nan, lls)
+        lls = np.where(durations > duration_max[i], np.nan, lls)
 
-    return epochs, duration_idx, periods
+        # Find the peak at this period.
+        epoch_i, duration_i = np.unravel_index(np.nanargmax(lls), lls.shape)
+
+        # Save the epoch and duration of the peak.
+        epoch_vals[i] = phase[epoch_i] * period
+        duration_vals[i] = durations[duration_i]
+
+    return epoch_vals, duration_vals, periods
 
 
 def main():
