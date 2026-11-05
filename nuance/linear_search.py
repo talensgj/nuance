@@ -98,8 +98,8 @@ def linear_search(
             results, axes=[3, 0, 1, 2]
         ).reshape((3, len(epochs_padded), len(durations)))[:, 0 : len(epochs), :]
 
+        ll0 = core.solve_model(flux, X, gp)(jnp.zeros_like(time))[0]
         if positive:
-            ll0 = core.solve_model(flux, X, gp)(jnp.zeros_like(time))[0]
             log_likelihoods[depths < 0] = ll0
 
         vars[~np.isfinite(vars)] = 1e25
