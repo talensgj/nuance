@@ -65,13 +65,9 @@ def periodic_search(epochs, durations, ls, snr_f, progress=True):
             pool.close()
             pool.join()
 
-        # Use jax.pmap to get the SNR at each period.
-        snr = np.zeros(len(periods))  # Output array.
-        snr_jax = jax.pmap(snr_f, in_axes=(0, 0, 0))
-        for i in _progress(range(0, len(periods), batch_size), unit_scale=batch_size):
-            imin = i
-            imax = i + batch_size
-            snr[imin:imax] = snr_jax(params[imin:imax, 0], params[imin:imax, 1], params[imin:imax, 2])
+        # Use jax.lax.map to get the SNR at each period.
+        snr = jax.lax.map(lambda x: snr_f(*x), params, batch_size=batch_size)
+        snr = np.asarray(snr)
 
         return snr, params
 
